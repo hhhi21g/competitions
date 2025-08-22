@@ -104,13 +104,22 @@ with open(test_path, 'r', encoding='utf-8') as f:
 
         # 推荐商品池
         candidates = defaultdict(int)
-        for aid in recent_clicks:
-            for b, score in co_visitation_clicks.get(aid,{}).items():
-                candidates[b] += weights["clicks"] * score
-            for b,score in co_visitation_cart.get(aid,{}).items():
-                candidates[b] += weights["cart"] * score
-            for b,score in co_visitation_order.get(aid,{}).items():
-                candidates[b] += weights["order"] * score
+        # for aid in recent_clicks:
+        #     for b, score in co_visitation_clicks.get(aid, {}).items():
+        #         candidates[b] += weights["clicks"] * score
+        #     for b, score in co_visitation_cart.get(aid, {}).items():
+        #         candidates[b] += weights["cart"] * score
+        #     for b, score in co_visitation_order.get(aid, {}).items():
+        #         candidates[b] += weights["order"] * score
+
+        for idx, aid in enumerate(clicked[-20:]):
+            weight = (idx + 1) / 20
+            for b, score in co_visitation_clicks.get(aid, {}).items():
+                candidates[b] += weight * weights["clicks"] * score
+            for b, score in co_visitation_cart.get(aid, {}).items():
+                candidates[b] += weight * weights["cart"] * score
+            for b, score in co_visitation_order.get(aid, {}).items():
+                candidates[b] += weight * weights["order"] * score
 
         # 取top20
         top_items = [str(aid) for aid, _ in sorted(candidates.items(), key=lambda x: -x[1])[:20]]
