@@ -8,7 +8,7 @@ import pyarrow.parquet as pq
 import pyarrow as pa
 
 train_path = "dataset\\train.jsonl"
-test_path = "dataset\\test.jsonl"
+# test_path = "dataset\\test.jsonl"
 co_vis_pkl = "output\\co_visitation.pkl"
 output_path = "output\\submission.csv"
 
@@ -19,7 +19,7 @@ def count_lines(filepath):
 
 
 total_lines = count_lines(train_path)
-total_test = count_lines(test_path)
+# total_test = count_lines(test_path)
 
 # 嵌套字典: 字典里的值还是一个字典
 # 外层字典: co_visitation[a], 商品a
@@ -97,9 +97,9 @@ weights = {"clicks": 1.0, "cart": 1.5, "order": 2.0}
 batch_size = 100000  # 每10万条写一次，可根据内存情况调节
 candidate_rows = []
 part_id = 0
-total_batches = (total_test // batch_size) + 1
+total_batches = (total_lines // batch_size) + 1
 
-with open(test_path, 'r', encoding='utf-8') as f, tqdm(f, total=total_test, desc='生成候选集') as session_pbar, tqdm(
+with open(train_path, 'r', encoding='utf-8') as f, tqdm(f, total=total_lines, desc='生成候选集') as session_pbar, tqdm(
         total=total_batches, desc='写入批次') as batch_pbar:
     for i, line in enumerate(session_pbar):
         session = json.loads(line)
@@ -156,9 +156,6 @@ if candidate_rows:
 print("候选集已分批保存到 dataset/")
 
 files = sorted(glob.glob("dataset/candidates_part_*.parquet"))
-# candidates_df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
-# candidates_df.to_parquet("dataset/candidates.parquet", index=False)
-
 
 writer = None
 
