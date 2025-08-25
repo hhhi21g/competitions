@@ -29,39 +29,6 @@ co_visitation_order = defaultdict(lambda: defaultdict(int))
 # 热门统计
 global_popular = Counter()
 
-# 构建商品共现字典
-# with open(train_path, 'r', encoding='utf-8') as f:
-#     for line in tqdm(f, total=total_lines, desc='构建共现矩阵'):
-#         session = json.loads(line)
-#         events = session['events']
-#
-#         # 更新全局热门
-#         for e in events:
-#             global_popular[e['aid']] += 1
-#
-#         aids = [event['aid'] for event in session['events'] if event['type'] == 'clicks']
-#         if len(aids) < 2:  # 点击数太少则跳过
-#             continue
-#
-#         # 只考虑相邻点击
-#         for i in range(len(aids) - 1):
-#             a, t1 = events[i]['aid'], events[i]['type']
-#             b, t2 = events[i + 1]['aid'], events[i + 1]['type']
-#             if a == b:
-#                 continue
-#
-#             # clicks共现
-#             if t1 == 'clicks' and t2 == 'clicks':
-#                 co_visitation_clicks[a][b] += 1
-#                 co_visitation_clicks[b][a] += 1
-#
-#             # click -> cart
-#             if t1 == 'clicks' and t2 == 'carts':
-#                 co_visitation_order[a][b] += 1
-#
-#             # click -> order
-#             if t1 == 'clicks' and t2 == 'orders':
-#                 co_visitation_order[a][b] += 1
 # 构建商品共现字典（带时间戳处理）
 with open(train_path, 'r', encoding='utf-8') as f:
     for line in tqdm(f, total=total_lines, desc='构建共现矩阵'):

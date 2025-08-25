@@ -1,60 +1,109 @@
 import pandas as pd
 import lightgbm as lgb
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score, accuracy_score
+import pyarrow.parquet as pq
+import gc
+from tqdm import tqdm
 
-# ============ Step 1. Session 层面划分 ============
-# 获取所有 session id
-all_sessions = train_features['session'].unique()
+train_features_path = "dataset/train_features.parquet"
+train_labels_path = "dataset/train_labels.parquet"
+batch_size = 50_000  # 内存小可以调小
 
-# 按 session 划分 80/20
-train_sessions, valid_sessions = train_test_split(all_sessions, test_size=0.2, random_state=42)
 
-# 根据 session id 过滤数据
-train_df = train_features[train_features['session'].isin(train_sessions)]
-valid_df = train_features[train_features['session'].isin(valid_sessions)]
+# ================== 构建 labels 生成器 ==================
+def labels_generator(labels_path):
+    parquet_file = pq.ParquetFile(labels_path)
+    for i in range(parquet_file.num_row_groups):
+        batch = parquet_file.read_row_group(i).to_pandas()
+        session_dict = {}
+        for _, row in batch.iterrows():
+            session = row['session']
+            session_dict[session] = {
+                'clicks': set(row.get('clicks', [])),
+                'carts': set(row.get('carts', [])),
+                'orders': set(row.get('orders', []))
+            }
+        yield session_dict
+        del batch
+        gc.collect()
 
-print("Train size:", len(train_df))
-print("Valid size:", len(valid_df))
 
-# ============ Step 2. 准备特征和标签 ============
-# 假设 "label" 是目标变量
-y_train = train_df['label']
-y_valid = valid_df['label']
+# ================== 分批读取特征并生成 label ==================
+def feature_batch_generator(features_path, labels_gen):
+    parquet_file = pq.ParquetFile(features_path)
+    for i in range(parquet_file.num_row_groups):
+        features = parquet_file.read_row_group(i).to_pandas()
+        try:
+            session_dict = next(labels_gen)
+        except StopIteration:
+            session_dict = {}
+        clicks_label, carts_label, orders_label = [], [], []
+        for _, row in features.iterrows():
+            s = row['session']
+            c = row['candidate']
+            labels = session_dict.get(s, {'clicks': set(), 'carts': set(), 'orders': set()})
+            clicks_label.append(1 if c in labels['clicks'] else 0)
+            carts_label.append(1 if c in labels['carts'] else 0)
+            orders_label.append(1 if c in labels['orders'] else 0)
+        features['clicks_label'] = clicks_label
+        features['carts_label'] = carts_label
+        features['orders_label'] = orders_label
+        yield features
+        del features, clicks_label, carts_label, orders_label
+        gc.collect()
 
-# 去掉非特征列
-drop_cols = ['session', 'item', 'label']  # 保留的都是数值特征
-X_train = train_df.drop(columns=drop_cols)
-X_valid = valid_df.drop(columns=drop_cols)
 
-# ============ Step 3. 训练 LightGBM 模型 ============
-train_set = lgb.Dataset(X_train, label=y_train)
-valid_set = lgb.Dataset(X_valid, label=y_valid)
+# ================== 增量训练函数 ==================
+def train_lgb_incremental(features_path, labels_path, target_cols):
+    labels_gen = labels_generator(labels_path)
+    models = {target: None for target in target_cols}
 
-params = {
-    'objective': 'binary',
-    'metric': 'auc',
-    'boosting_type': 'gbdt',
-    'learning_rate': 0.05,
-    'num_leaves': 31,
-    'feature_fraction': 0.9,
-    'bagging_fraction': 0.8,
-    'bagging_freq': 5,
-    'verbose': -1
-}
+    parquet_file = pq.ParquetFile(features_path)
+    total_batches = parquet_file.num_row_groups
 
-model = lgb.train(
-    params,
-    train_set,
-    valid_sets=[train_set, valid_set],
-    num_boost_round=200,
-    early_stopping_rounds=20,
-    verbose_eval=20
-)
+    for batch_idx, batch_df in enumerate(tqdm(feature_batch_generator(features_path, labels_gen),
+                                              total=total_batches,
+                                              desc="Processing Batches")):
+        feature_cols = [c for c in batch_df.columns if c not in ['session', 'candidate',
+                                                                 'clicks_label', 'carts_label', 'orders_label']]
+        for target_col in tqdm(target_cols, desc=f"Training Models on Batch {batch_idx + 1}", leave=False):
+            X = batch_df[feature_cols]
+            y = batch_df[target_col]
+            lgb_train = lgb.Dataset(X, label=y)
 
-# ============ Step 4. 验证集评估 ============
-y_pred_proba = model.predict(X_valid, num_iteration=model.best_iteration)
-y_pred = (y_pred_proba > 0.5).astype(int)
+            params = {
+                'objective': 'binary',
+                'metric': 'auc',
+                'boosting_type': 'gbdt',
+                'learning_rate': 0.05,
+                'num_leaves': 64,
+                'max_depth': -1,
+                'min_data_in_leaf': 50,
+                'feature_fraction': 0.8,
+                'bagging_fraction': 0.8,
+                'bagging_freq': 5,
+                'verbosity': -1
+            }
 
-print("Validation AUC:", roc_auc_score(y_valid, y_pred_proba))
-print("Validation ACC:", accuracy_score(y_valid, y_pred))
+            if models[target_col] is None:
+                models[target_col] = lgb.train(params, lgb_train, num_boost_round=100)
+            else:
+                models[target_col] = lgb.train(params, lgb_train, num_boost_round=100, init_model=models[target_col])
+
+            del X, y, lgb_train
+            gc.collect()
+
+        del batch_df
+        gc.collect()
+
+    # 保存模型
+    for target_col, model in models.items():
+        model.save_model(f"lgbm_{target_col}.txt")
+
+    return models
+
+
+# ================== 主程序 ==================
+if __name__ == "__main__":
+    target_cols = ['clicks_label', 'carts_label', 'orders_label']
+    models = train_lgb_incremental(train_features_path, train_labels_path, target_cols)
+    print("All models trained and saved successfully.")

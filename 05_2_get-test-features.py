@@ -3,17 +3,23 @@ import numpy as np
 import pyarrow.parquet as pq
 import pyarrow as pa
 from tqdm import tqdm
-import shelve
+import pickle
 import json
+import gc
 
 # ================== 路径配置 ==================
-CANDIDATES_PATH = "dataset/candidates.parquet"  # 候选集
-TEST_PATH = "dataset/test.jsonl"  # test.jsonl
-CO_DB_PATH = "dataset/co_visitation.db"  # co-visitation 磁盘数据库
-OUTPUT_PATH = "dataset/test_features.parquet"  # 输出特征
+TEST_PATH = "dataset/test.jsonl"   # 测试集
+CANDIDATES_PATH = "dataset/test_candidates.parquet"  # 候选集
+CO_PKL_PATH = "dataset/co_visitation.pkl"       # 共现矩阵 pkl
+TEST_FEAT_PATH = "dataset/test_features.parquet"  # 输出特征
 BATCH_SIZE = 500_000  # 分块写入
 
-# ================== 构建 session dict ==================
+# ================== 1. 加载共现矩阵 ==================
+print("Loading co-visitation matrix from pkl...")
+with open(CO_PKL_PATH, "rb") as f:
+    co_vis = pickle.load(f)   # {aid1: {aid2: count}}
+
+# ================== 2. 读取测试集 session_dict ==================
 print("Loading test.jsonl into session dict...")
 session_dict = {}
 with open(TEST_PATH, "r", encoding="utf-8") as f:
@@ -25,14 +31,11 @@ with open(TEST_PATH, "r", encoding="utf-8") as f:
 
 print(f"Loaded {len(session_dict)} sessions from test.jsonl.")
 
-# ================== 处理候选集 ==================
-print("Processing candidates and generating features...")
+# ================== 3. 生成测试特征 ==================
+print("Processing candidates and generating test features...")
 reader = pq.ParquetFile(CANDIDATES_PATH)
 writer_feat = None
 buffer_feat = []
-
-# 打开 co-visitation 磁盘数据库
-co_db = shelve.open(CO_DB_PATH)
 
 for rg in range(reader.num_row_groups):
     chunk = reader.read_row_group(rg).to_pandas()
@@ -47,14 +50,13 @@ for rg in range(reader.num_row_groups):
         if not true_items:
             continue
 
-        # 时间加权特征
         co_scores = []
         co_scores_weighted = []
         session_len = len(true_items)
         max_ts = max([ts for _, ts in true_items]) if session_len > 0 else 0
 
         for aid, ts in true_items:
-            score = co_db.get(f"{aid}_{cand}", 0)
+            score = co_vis.get(aid, {}).get(cand, 0)
             co_scores.append(score)
             # 时间衰减权重
             alpha = 0.001
@@ -87,21 +89,20 @@ for rg in range(reader.num_row_groups):
         df_feat = pd.DataFrame(buffer_feat)
         table_feat = pa.Table.from_pandas(df_feat)
         if writer_feat is None:
-            writer_feat = pq.ParquetWriter(OUTPUT_PATH, table_feat.schema)
+            writer_feat = pq.ParquetWriter(TEST_FEAT_PATH, table_feat.schema)
         writer_feat.write_table(table_feat)
         buffer_feat = []
+        gc.collect()
 
 # 写入剩余数据
 if buffer_feat:
     df_feat = pd.DataFrame(buffer_feat)
     table_feat = pa.Table.from_pandas(df_feat)
     if writer_feat is None:
-        writer_feat = pq.ParquetWriter(OUTPUT_PATH, table_feat.schema)
+        writer_feat = pq.ParquetWriter(TEST_FEAT_PATH, table_feat.schema)
     writer_feat.write_table(table_feat)
 
-# 关闭 writer 和 co-visitation db
 if writer_feat:
     writer_feat.close()
-co_db.close()
 
-print(f"测试特征已保存到 {OUTPUT_PATH}")
+print(f"测试特征已保存到 {TEST_FEAT_PATH}")
