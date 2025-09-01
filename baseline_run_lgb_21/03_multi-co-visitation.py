@@ -3,14 +3,11 @@ import pickle
 from collections import defaultdict, Counter
 from tqdm import tqdm
 import pandas as pd
-import glob
-import pyarrow.parquet as pq
-import pyarrow as pa
 
-train_path = "dataset\\train.jsonl"
-# test_path = "dataset\\test.jsonl"
+train_path = "../dataset/train.jsonl"
+test_path = "../dataset/test.jsonl"
 co_vis_pkl = "output\\co_visitation.pkl"
-output_path = "output\\submission.csv"
+output_path = "../output/submission.csv"
 
 
 def count_lines(filepath):
@@ -19,7 +16,7 @@ def count_lines(filepath):
 
 
 total_lines = count_lines(train_path)
-# total_test = count_lines(test_path)
+total_test = count_lines(test_path)
 
 # 嵌套字典: 字典里的值还是一个字典
 # 外层字典: co_visitation[a], 商品a
@@ -94,20 +91,20 @@ global_popular_top = [aid for aid, _ in global_popular.most_common(50)]
 # 权重
 weights = {"clicks": 1.0, "cart": 1.5, "order": 2.0}
 
-batch_size = 100000  # 每10万条写一次，可根据内存情况调节
-candidate_rows = []
-part_id = 0
-total_batches = (total_lines // batch_size) + 1
+submission_rows = []
 
-with open(train_path, 'r', encoding='utf-8') as f, tqdm(f, total=total_lines, desc='生成候选集') as session_pbar, tqdm(
-        total=total_batches, desc='写入批次') as batch_pbar:
-    for i, line in enumerate(session_pbar):
+with open(test_path, 'r', encoding='utf-8') as f:
+    for line in tqdm(f, total=total_test, desc='为测试集生成推荐'):
         session = json.loads(line)
         sid = session['session']
 
+        # 获得最近的点击事件
         clicked = [event['aid'] for event in session['events'] if event['type'] == 'clicks']
+        recent_clicks = clicked[-5:]
 
+        # 推荐商品池
         candidates = defaultdict(int)
+
         for idx, aid in enumerate(clicked[-20:]):
             weight = (idx + 1) / 20
             for b, score in co_visitation_clicks.get(aid, {}).items():
@@ -117,58 +114,23 @@ with open(train_path, 'r', encoding='utf-8') as f, tqdm(f, total=total_lines, de
             for b, score in co_visitation_order.get(aid, {}).items():
                 candidates[b] += weight * weights["order"] * score
 
-        # 取top50作为候选
-        top_items = sorted(candidates.items(), key=lambda x: -x[1])[:50]
+        # 取top20
+        top_items = [str(aid) for aid, _ in sorted(candidates.items(), key=lambda x: -x[1])[:20]]
 
-        for aid, score in top_items:
-            candidate_rows.append({
-                "session": sid,
-                "candidate": aid,
-                "score": score,
-                "source": "co_vis"
+        # 热门商品补位
+        if len(top_items) < 20:
+            need = 20 - len(top_items)
+            for aid in global_popular_top:
+                if str(aid) not in top_items:
+                    top_items.append(str(aid))
+                if len(top_items) == 20:
+                    break
+
+        for t in ['clicks', 'carts', 'orders']:
+            submission_rows.append({
+                'session_type': f"{sid}_{t}",
+                'labels': ' '.join(top_items)
             })
 
-        # 热门补位
-        for aid in global_popular_top:
-            if aid not in candidates:
-                candidate_rows.append({
-                    "session": sid,
-                    "candidate": aid,
-                    "score": 0,
-                    "source": "popular"
-                })
-
-        # 分批写入
-        if (i + 1) % batch_size == 0:
-            df = pd.DataFrame(candidate_rows)
-            df.to_parquet(f"dataset/candidates_part_{i // batch_size}.parquet", index=False)
-            candidate_rows = []  # 清空缓存
-            part_id += 1
-            batch_pbar.update(1)
-
-# 最后一批写入
-if candidate_rows:
-    df = pd.DataFrame(candidate_rows)
-    df.to_parquet(f"dataset/candidates_part_last.parquet", index=False)
-    part_id += 1
-    batch_pbar.update(1)
-
-print("候选集已分批保存到 dataset/")
-
-files = sorted(glob.glob("dataset/candidates_part_*.parquet"))
-
-writer = None
-
-with tqdm(total=len(files), desc="合并候选集文件") as merge_pbar:
-    for f in files:
-        df = pd.read_parquet(f)
-        table = pa.Table.from_pandas(df)
-        if writer is None:
-            writer = pq.ParquetWriter("dataset/candidates.parquet", table.schema)
-        writer.write_table(table)
-        merge_pbar.update(1)
-
-if writer:
-    writer.close()
-
-print("候选集已成功合并保存到 dataset/candidates.parquet")
+submission = pd.DataFrame(submission_rows)
+submission.to_csv('output\\submission.csv', index=False)

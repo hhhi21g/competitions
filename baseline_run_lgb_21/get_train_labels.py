@@ -4,7 +4,7 @@ from tqdm import tqdm
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-train_file = "dataset\\train.jsonl"
+train_file = "../dataset/train.jsonl"
 
 batch_size = 500_000
 sessions = []
@@ -14,8 +14,7 @@ batch_idx = 0
 with open(train_file, "r") as f:
     total_lines = sum(1 for _ in f)
 
-# 第二步：分批处理 JSONL 文件，并直接追加写入 Parquet
-output_file = "dataset\\train_labels.parquet"
+output_file = "../dataset/train_labels.parquet"
 writer = None
 
 with open(train_file, "r") as f:

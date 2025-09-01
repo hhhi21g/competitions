@@ -6,10 +6,10 @@ from tqdm import tqdm
 top_clicks = Counter()
 
 # 计算总行数
-with open('dataSet\\train.jsonl', 'r', encoding='utf-8') as f:
+with open('../dataset/train.jsonl', 'r', encoding='utf-8') as f:
     total_lines = sum(1 for _ in f)
 
-with open('dataSet\\train.jsonl', 'r', encoding='utf-8') as f:
+with open('../dataset/train.jsonl', 'r', encoding='utf-8') as f:
     for line in tqdm(f,total=total_lines,desc="统计热门商品"):
         session = json.loads(line)
         for event in session['events']:
@@ -21,10 +21,10 @@ top_items = [str(aid) for aid, _ in top_clicks.most_common(20)]
 submission_rows = []
 
 # 获取 test 文件总行数
-with open('dataSet\\test.jsonl', 'r', encoding='utf-8') as f:
+with open('../dataset/test.jsonl', 'r', encoding='utf-8') as f:
     total_test = sum(1 for _ in f)
 
-with open('dataSet\\test.jsonl', 'r', encoding='utf-8') as f:
+with open('../dataset/test.jsonl', 'r', encoding='utf-8') as f:
     for line in tqdm(f,total = total_test,desc="构建submission.csv"):
         session = json.loads(line)
         sid = session['session']

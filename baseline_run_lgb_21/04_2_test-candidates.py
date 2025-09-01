@@ -8,9 +8,9 @@ import pyarrow.parquet as pq
 import pyarrow as pa
 
 # train_path = "dataset\\train.jsonl"
-test_path = "dataset\\test.jsonl"
+test_path = "../dataset/test.jsonl"
 co_vis_pkl = "output\\test_co_visitation.pkl"
-output_path = "output\\submission.csv"
+output_path = "../output/submission.csv"
 
 
 def count_lines(filepath):

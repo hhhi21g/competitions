@@ -4,8 +4,8 @@ from collections import defaultdict
 from tqdm import tqdm
 import pandas as pd
 
-train_path = "dataset\\train.jsonl"
-test_path = "dataset\\test.jsonl"
+train_path = "../dataset/train.jsonl"
+test_path = "../dataset/test.jsonl"
 co_vis_pkl = "co_visitation.pkl" 
 output_path = "submission.csv" 
 

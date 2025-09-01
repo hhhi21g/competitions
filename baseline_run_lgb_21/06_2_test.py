@@ -3,25 +3,24 @@ import lightgbm as lgb
 import pyarrow.parquet as pq
 from tqdm import tqdm
 
-test_features_path = "dataset/test_features.parquet"
+test_features_path = "../dataset/test_features.parquet"
 
-# ========== 加载模型 ==========
 models = {
-    'clicks': lgb.Booster(model_file="lgbm_clicks_label.txt"),
-    'carts':  lgb.Booster(model_file="lgbm_carts_label.txt"),
-    'orders': lgb.Booster(model_file="lgbm_orders_label.txt")
+    'clicks': lgb.Booster(model_file="../dataset/lgb/lgbm_clicks_label.txt"),
+    'carts':  lgb.Booster(model_file="../dataset/lgb/lgbm_carts_label.txt"),
+    'orders': lgb.Booster(model_file="../dataset/lgb/lgbm_orders_label.txt")
 }
 
-# ========== 预测函数 ==========
+
 def predict_submission(features_path, models, topk=20):
     parquet_file = pq.ParquetFile(features_path)
-    print(f"[INFO] Total row groups in parquet: {parquet_file.num_row_groups}")
+    # print(f"[INFO] Total row groups in parquet: {parquet_file.num_row_groups}")
 
     results = []
 
     for rg in tqdm(range(parquet_file.num_row_groups), desc="Predicting"):
         batch = parquet_file.read_row_group(rg).to_pandas()
-        print(f"[DEBUG] Row group {rg}: shape = {batch.shape}")
+        # print(f"[DEBUG] Row group {rg}: shape = {batch.shape}")
 
         batch_results = []  # 每个 batch 的结果先放临时列表
 
@@ -62,9 +61,8 @@ def predict_submission(features_path, models, topk=20):
 
     return submission
 
-# ========== 主程序 ==========
 if __name__ == "__main__":
     submission = predict_submission(test_features_path, models, topk=20)
     submission.to_csv("submission.csv", index=False)
-    print("✅ submission.csv saved successfully. Shape:", submission.shape)
+    print("submission.csv saved successfully. Shape:", submission.shape)
     print(submission.head(6))

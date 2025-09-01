@@ -4,12 +4,10 @@ import pyarrow.parquet as pq
 import gc
 from tqdm import tqdm
 
-train_features_path = "dataset/train_features.parquet"
-train_labels_path = "dataset/train_labels.parquet"
-batch_size = 50_000  # 内存小可以调小
+train_features_path = "../dataset/train_features.parquet"
+train_labels_path = "../dataset/train_labels.parquet"
+batch_size = 50_000
 
-
-# ================== 构建 labels 生成器 ==================
 def labels_generator(labels_path):
     parquet_file = pq.ParquetFile(labels_path)
     for i in range(parquet_file.num_row_groups):
@@ -22,12 +20,11 @@ def labels_generator(labels_path):
                 'carts': set(row.get('carts', [])),
                 'orders': set(row.get('orders', []))
             }
-        yield session_dict
+        yield session_dict  # 逐步返回，一小批一小批的提供给训练过程
         del batch
         gc.collect()
 
 
-# ================== 分批读取特征并生成 label ==================
 def feature_batch_generator(features_path, labels_gen):
     parquet_file = pq.ParquetFile(features_path)
     for i in range(parquet_file.num_row_groups):
@@ -52,7 +49,6 @@ def feature_batch_generator(features_path, labels_gen):
         gc.collect()
 
 
-# ================== 增量训练函数 ==================
 def train_lgb_incremental(features_path, labels_path, target_cols):
     labels_gen = labels_generator(labels_path)
     models = {target: None for target in target_cols}
@@ -102,7 +98,6 @@ def train_lgb_incremental(features_path, labels_path, target_cols):
     return models
 
 
-# ================== 主程序 ==================
 if __name__ == "__main__":
     target_cols = ['clicks_label', 'carts_label', 'orders_label']
     models = train_lgb_incremental(train_features_path, train_labels_path, target_cols)

@@ -4,10 +4,10 @@ from collections import defaultdict, Counter
 from tqdm import tqdm
 import pandas as pd
 
-train_path = "dataset\\train.jsonl"
-test_path = "dataset\\test.jsonl"
+train_path = "../dataset/train.jsonl"
+test_path = "../dataset/test.jsonl"
 co_vis_pkl = "output\\co_visitation.pkl"
-output_path = "output\\submission.csv"
+output_path = "../output/submission.csv"
 
 
 def count_lines(filepath):
